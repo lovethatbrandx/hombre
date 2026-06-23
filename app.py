@@ -5,6 +5,7 @@ import base64
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import unquote
 
 import httpx
 from fastapi import FastAPI, Request
@@ -64,9 +65,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; font-src fonts.googleapis.com fonts.gstatic.com; "
-            "style-src 'self' 'unsafe-inline'"
+            "default-src 'self'; script-src 'self'; font-src fonts.googleapis.com fonts.gstatic.com; "
+            "style-src 'self' 'unsafe-inline' fonts.googleapis.com;"
         )
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response
 
 
@@ -148,9 +151,12 @@ async def chat_stream(wid: str, pid: str, request: Request):
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request: Request):
-    from urllib.parse import unquote
     decoded_path = unquote(path)
-    if ".." in decoded_path or decoded_path.startswith("/"):
+    prev = None
+    while prev != decoded_path:
+        prev = decoded_path
+        decoded_path = unquote(decoded_path)
+    if ".." in decoded_path or "\x00" in decoded_path or decoded_path.startswith("/"):
         return JSONResponse({"error": "invalid_path"}, status_code=400)
 
     try:

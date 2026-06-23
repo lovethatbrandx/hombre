@@ -1,53 +1,103 @@
 # Honcho Dashboard
 
-Web-based GUI for managing a self-hosted [Honcho](https://honcho.dev) AI memory server.
+> A self-hosted web UI for Honcho — because the official dashboard isn't self-hostable.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Vibe-coded](https://img.shields.io/badge/Vibe--coded%20with-OpenCode%20%2B%20MiMo-000000?style=for-the-badge)](https://opencode.ai)
+
+## Why This Exists
+
+Honcho is open source. You can run the server yourself. But the dashboard — the thing you actually interact with — is only available on their hosted platform. So if you self-host, you get an API endpoint and nothing else.
+
+This project fixes that. A full GUI for managing workspaces, peers, sessions, chat, and configuration. No accounts, no hosted service, no gatekeeping.
+
+It was built 100% using AI coding tools ([OpenCode](https://opencode.ai) + [MiMo](https://huggingface.co)) — no manual coding, no shame.
 
 ## Features
 
-- **Overview** — workspace stats, peer/session/conclusion counts
-- **Peers** — list, view representation and peer card
-- **Sessions** — list, view messages and summaries
-- **Chat** — dialectic query against a peer's representation (SSE streaming)
+- **Overview** — workspace stats, peer/session/conclusion counts at a glance
+- **Peers** — list participants, view representations and peer cards
+- **Sessions** — list conversations, view messages and summaries
+- **Chat** — dialectic queries against a peer's representation (SSE streaming)
 - **Conclusions** — browse and semantic search reasoning/memory
-- **Messages** — browse messages across sessions
+- **Messages** — browse messages across all sessions
 - **Settings** — configure LLM providers, embedding models, dialectic levels, and more
 
-## Requirements
+## Prerequisites
 
-- Python 3.12+
+You need a running Honcho server. This dashboard is a frontend for it — it doesn't include the server itself.
+
 - Honcho server running on `localhost:8000` (configurable via `HONCHO_URL`)
-- Docker (for settings tab restart functionality)
+- See [honcho.dev](https://honcho.dev) for server setup instructions
 
 ## Quick Start
 
-### Local
+### Option 1: Python (System Install)
+
+Requires Python 3.12+.
 
 ```bash
+git clone https://github.com/lovethatbrandx/honcho-dashboard.git
 cd honcho-dashboard
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+Set the required environment variables:
+
+```bash
+export HONCHO_ENV_PATH=/path/to/honcho/.env
+export HONCHO_COMPOSE_DIR=/path/to/honcho
+```
+
+Then run:
+
+```bash
 python app.py
 ```
 
 Dashboard runs at `http://localhost:5000`.
 
-### Docker
+### Option 2: Docker
+
+The repo includes a `docker-compose.yml` ready to go. Just edit the environment variables to match your setup:
+
+```yaml
+services:
+  honcho-dashboard:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - HONCHO_URL=http://host.docker.internal:8000
+      - HONCHO_ENV_PATH=/path/to/honcho/.env    # <-- change this
+      - HONCHO_COMPOSE_DIR=/path/to/honcho      # <-- and this
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+
+Then run:
 
 ```bash
 docker compose up -d
 ```
 
-## Environment Variables
+## Configuration
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `HONCHO_URL` | No | `http://localhost:8000` | Honcho server URL |
 | `HONCHO_API_KEY` | No | *(empty)* | API key for Honcho server authentication |
-| `HONCHO_ENV_PATH` | **Yes** | — | Path to Honcho `.env` file (for settings tab) |
-| `HONCHO_COMPOSE_DIR` | **Yes** | — | Docker Compose working directory for Honcho server |
+| `HONCHO_ENV_PATH` | No | *(empty)* | Path to Honcho `.env` file (for settings tab) |
+| `HONCHO_COMPOSE_DIR` | No | *(empty)* | Docker Compose working directory for Honcho server |
 | `DASHBOARD_USER` | No | *(empty)* | HTTP Basic Auth username (empty = no auth) |
 | `DASHBOARD_PASSWORD` | No | *(empty)* | HTTP Basic Auth password (empty = no auth) |
+
+> **Note:** `HONCHO_ENV_PATH` and `HONCHO_COMPOSE_DIR` are optional — the app starts without them, but the Settings tab won't work until they're set.
 
 ## Settings Tab
 
@@ -78,16 +128,9 @@ The settings tab reads and writes the Honcho `.env` configuration file. Changes 
 - **Path traversal** — Proxy validates and URL-decodes paths before forwarding.
 - **Security headers** — CSP, X-Content-Type-Options, X-Frame-Options.
 
-## API Endpoints
+## Contributing
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Honcho server health check |
-| `/api/settings/read` | GET | Read `.env` configuration |
-| `/api/settings/write` | POST | Write to `.env` (with backup) |
-| `/api/settings/restore` | POST | Restore from `.env.bak` |
-| `/api/settings/restart` | POST | Restart Docker containers |
-| `/api/{path}` | * | Proxy to Honcho `/v3/{path}` |
+Contributions welcome. This project was built entirely with AI coding tools — feel free to use the same approach.
 
 ## Project Structure
 

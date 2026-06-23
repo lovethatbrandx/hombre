@@ -288,12 +288,14 @@ const OverviewTab = {
 
     let peerCount = 0, sessionCount = 0, conclusionCount = 0;
     try {
-      peerCount = App.state.peers.length;
-      sessionCount = App.state.sessions.length;
-      if (peerCount > 0) {
-        const conclusions = await App.api(`workspaces/${ws.id}/conclusions/list`, { body: {} });
-        conclusionCount = conclusions.total || 0;
-      }
+      const [peersData, sessionsData] = await Promise.all([
+        App.api(`workspaces/${ws.id}/peers/list`, { body: {} }),
+        App.api(`workspaces/${ws.id}/sessions/list`, { body: {} }),
+      ]);
+      peerCount = (peersData.items || []).length;
+      sessionCount = (sessionsData.items || []).length;
+      const conclusions = await App.api(`workspaces/${ws.id}/conclusions/list`, { body: {} });
+      conclusionCount = conclusions.total || 0;
     } catch {}
 
     el.innerHTML = `

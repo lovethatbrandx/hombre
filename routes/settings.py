@@ -12,8 +12,8 @@ log = logging.getLogger("honcho-dashboard")
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-HONCHO_ENV_PATH = os.environ["HONCHO_ENV_PATH"]
-HONCHO_COMPOSE_DIR = os.environ["HONCHO_COMPOSE_DIR"]
+HONCHO_ENV_PATH = os.environ.get("HONCHO_ENV_PATH", "")
+HONCHO_COMPOSE_DIR = os.environ.get("HONCHO_COMPOSE_DIR", "")
 
 WRITABLE_KEYS = {
     "LLM_OPENAI_API_KEY",
@@ -49,6 +49,16 @@ WRITABLE_KEYS = {
     "DREAM_INDUCTION_MODEL_CONFIG__OVERRIDES__BASE_URL",
     "DREAM_INDUCTION_MODEL_CONFIG__TRANSPORT",
 }
+
+def _require_env_path():
+    if not HONCHO_ENV_PATH:
+        raise HTTPException(status_code=403, detail="settings_not_configured")
+
+
+def _require_compose_dir():
+    if not HONCHO_COMPOSE_DIR:
+        raise HTTPException(status_code=403, detail="settings_not_configured")
+
 
 def parse_env_file(path: str) -> dict:
     env = {}
@@ -103,6 +113,7 @@ class SettingsWriteRequest(BaseModel):
 
 @router.get("/read")
 async def read_settings():
+    _require_env_path()
     env = parse_env_file(HONCHO_ENV_PATH)
     sections = {
         "llm": {
@@ -171,12 +182,14 @@ async def read_settings():
 
 @router.post("/write")
 async def write_settings(req: SettingsWriteRequest):
+    _require_env_path()
     write_env_file(HONCHO_ENV_PATH, req.settings)
     return {"status": "ok", "env_path": HONCHO_ENV_PATH}
 
 
 @router.post("/backup")
 async def create_backup():
+    _require_env_path()
     env_path = Path(HONCHO_ENV_PATH)
     if not env_path.exists():
         raise HTTPException(status_code=404, detail="env_file_not_found")
@@ -187,6 +200,7 @@ async def create_backup():
 
 @router.post("/restore")
 async def restore_backup():
+    _require_env_path()
     env_path = Path(HONCHO_ENV_PATH)
     backup_path = env_path.parent / (env_path.name + ".bak")
     if not backup_path.exists():
@@ -197,6 +211,8 @@ async def restore_backup():
 
 @router.post("/restart")
 async def restart_containers():
+    _require_env_path()
+    _require_compose_dir()
     try:
         proc = await asyncio.create_subprocess_exec(
             "docker", "compose", "up", "-d", "--force-recreate",
