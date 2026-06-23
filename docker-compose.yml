@@ -1,6 +1,7 @@
 services:
   hombre:
-    build: .
+    image: ghcr.io/lovethatbrandx/hombre/hombre:latest
+    container_name: hombre
     ports:
       - "5000:5000"
     environment:
