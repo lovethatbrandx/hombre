@@ -10,6 +10,10 @@
 
 </div>
 
+<p align="center">
+  <img src="static/app_screenshot.png" alt="Hombre Dashboard" width="800">
+</p>
+
 ## Why This Exists
 
 Honcho is open source. You can run the server yourself. But the dashboard, the thing you actually interact with, is only available on their hosted platform. Self-host the server and you get an API endpoint and nothing else.
