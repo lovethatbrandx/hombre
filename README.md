@@ -13,7 +13,7 @@
 
 Honcho is open source. You can run the server yourself. But the dashboard, the thing you actually interact with, is only available on their hosted platform. Self-host the server and you get an API endpoint and nothing else.
 
-It's a full GUI for managing workspaces, peers, sessions, chat, and configuration. Runs locally with no hosted service and no accounts needed.
+Hombre gives you a full GUI for workspaces, peers, sessions, chat, and configuration. Everything runs locally on your machine.
 
 Built entirely with AI coding tools ([OpenCode](https://opencode.ai) + [MiMo](https://huggingface.co/XiaomiMiMo/MiMo-V2.5)). No shame about it.
 
