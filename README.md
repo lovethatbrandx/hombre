@@ -1,4 +1,4 @@
-# Honcho Dashboard
+# Hombre
 
 > A self-hosted web UI for Honcho, because the official dashboard isn't self-hostable.
 
@@ -41,8 +41,8 @@ You need a running Honcho server. This dashboard is a frontend for it, it doesn'
 Requires Python 3.12+.
 
 ```bash
-git clone https://github.com/lovethatbrandx/honcho-dashboard.git
-cd honcho-dashboard
+git clone https://github.com/lovethatbrandx/hombre.git
+cd hombre
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -69,7 +69,7 @@ The repo includes a `docker-compose.yml` ready to go. Edit the environment varia
 
 ```yaml
 services:
-  honcho-dashboard:
+  hombre:
     build: .
     ports:
       - "5000:5000"
@@ -136,7 +136,7 @@ Contributions welcome. The whole thing was built with AI tools, so feel free to 
 ## Project Structure
 
 ```
-honcho-dashboard/
+hombre/
 ├── app.py                 # FastAPI backend (auth, proxy, routes)
 ├── routes/
 │   └── settings.py        # Settings API endpoints

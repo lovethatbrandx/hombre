@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from routes.settings import router as settings_router
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("honcho-dashboard")
+log = logging.getLogger("hombre")
 
 HONCHO_URL = os.environ.get("HONCHO_URL", "http://localhost:8000")
 HONCHO_API_KEY = os.environ.get("HONCHO_API_KEY", "")
@@ -35,7 +35,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.username = username
         self.password = password
-        self._401 = JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": 'Basic realm="Honcho Dashboard"'})
+        self._401 = JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": 'Basic realm="Hombre"'})
 
     async def dispatch(self, request, call_next):
         if not self.username or not self.password:
@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Honcho Dashboard",
+    title="Hombre",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,

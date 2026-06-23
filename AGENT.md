@@ -2,7 +2,7 @@
 
 ## Project
 
-Honcho Dashboard — web-based GUI for a self-hosted Honcho AI memory server.
+Hombre — web-based GUI for a self-hosted Honcho AI memory server.
 
 - **Backend**: Python FastAPI, runs on port 5000
 - **Frontend**: Vanilla HTML/CSS/JS (no build tools, no frameworks)

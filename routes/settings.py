@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-log = logging.getLogger("honcho-dashboard")
+log = logging.getLogger("hombre")
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
