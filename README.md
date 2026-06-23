@@ -6,7 +6,7 @@
 [![Python 3.12+](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
-[![OpenCode](https://img.shields.io/badge/OpenCode-000000?style=for-the-badge&logo=terminal&logoColor=green)](https://opencode.ai)
+[![OpenCode](https://img.shields.io/badge/~%24_OpenCode-000000?style=for-the-badge&logo=terminal&logoColor=green)](https://opencode.ai)
 [![MiMo](https://img.shields.io/badge/MiMo-FF6B35?style=for-the-badge&logo=huggingface&logoColor=white)](https://huggingface.co/XiaomiMiMo/MiMo-V2.5)
 
 ## Why This Exists
