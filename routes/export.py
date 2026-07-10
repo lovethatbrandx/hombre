@@ -381,6 +381,8 @@ async def merge_preview(req: MergeRequest):
     result = {
         "source_peers": len(source_peer_ids),
         "target_peers": len(target_peer_ids),
+        "source_sessions": len(source_session_ids),
+        "target_sessions": len(target_session_ids),
         "peers_non_conflicting": len(non_conflicting),
         "peers_conflicting": len(conflicts),
         "conflicts": conflicts,
