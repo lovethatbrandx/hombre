@@ -916,7 +916,7 @@ const PeersTab = {
 
   async deletePeer(id, btnEl) {
     const ws = App.state.workspace;
-    Modal.confirm('Delete Peer', `Delete peer "${id}"? This is a soft-delete — the peer will be hidden from the UI.`, async () => {
+    Modal.confirm('Delete Peer', `Delete peer "${id}"? This will be removed locally (Honcho does not support native peer deletion).`, async () => {
       const ok = await App.softDelete('peer', id);
       if (ok) {
         Modal.close();
@@ -1581,24 +1581,38 @@ const ConclusionsTab = {
   async deleteItem(id, btnEl) {
     const card = btnEl.closest('.card');
     if (!card) return;
-    const ok = await App.softDelete('conclusion', id);
-    if (ok) {
-      card.style.transition = 'opacity 0.2s ease';
-      card.style.opacity = '0';
-      setTimeout(() => {
-        card.remove();
-        this.state.items = this.state.items.filter((c, i) => (c.id || `c-${i}`) !== id);
-        const list = document.getElementById('conclusion-list');
-        if (list && list.children.length === 0) {
-          const results = document.getElementById('conclusion-results');
-          results.innerHTML = `
-            <div class="empty-state">
-              <h3>No conclusions found</h3>
-              <p>Honcho hasn't drawn any conclusions about this peer yet</p>
-            </div>`;
-        }
-      }, 200);
-    }
+    const ws = App.state.workspace;
+
+    Modal.confirm('Delete Conclusion', `Delete this conclusion? ${ws ? `This will attempt to remove it from Honcho via ${ws.id}.` : ''}`, async () => {
+      let ok = false;
+      try {
+        // Try real deletion via Honcho API first
+        await App.api(`workspaces/${ws.id}/conclusions/${id}`, { method: 'DELETE' });
+        ok = true;
+        App.toast('Conclusion deleted', 'success');
+      } catch {
+        // Honcho may not support conclusion deletion — fall back to soft-delete
+        ok = await App.softDelete('conclusion', id);
+      }
+      if (ok) {
+        Modal.close();
+        card.style.transition = 'opacity 0.2s ease';
+        card.style.opacity = '0';
+        setTimeout(() => {
+          card.remove();
+          this.state.items = this.state.items.filter((c, i) => (c.id || `c-${i}`) !== id);
+          const list = document.getElementById('conclusion-list');
+          if (list && list.children.length === 0) {
+            const results = document.getElementById('conclusion-results');
+            results.innerHTML = `
+              <div class="empty-state">
+                <h3>No conclusions found</h3>
+                <p>Honcho hasn't drawn any conclusions about this peer yet</p>
+              </div>`;
+          }
+        }, 200);
+      }
+    });
   },
 
   guessType(content) {
@@ -1751,20 +1765,26 @@ const MessagesTab = {
   async deleteItem(id, btnEl) {
     const row = btnEl.closest('tr');
     if (!row) return;
-    const ok = await App.softDelete('message', id);
-    if (ok) {
-      row.style.transition = 'opacity 0.2s ease';
-      row.style.opacity = '0';
-      setTimeout(() => {
-        row.remove();
-        this.state.items = this.state.items.filter((m, i) => (m.id || `m-${i}`) !== id);
-        const tbody = document.querySelector('#msg-results tbody');
-        if (tbody && tbody.children.length === 0) {
-          const results = document.getElementById('msg-results');
-          results.innerHTML = '<div class="text-sm text-muted">No messages found</div>';
-        }
-      }, 200);
-    }
+    const ws = App.state.workspace;
+
+    Modal.confirm('Delete Message', `Delete this message? This will be removed locally.`, async () => {
+      // Honcho does not natively support message deletion — use soft-delete
+      const ok = await App.softDelete('message', id);
+      if (ok) {
+        Modal.close();
+        row.style.transition = 'opacity 0.2s ease';
+        row.style.opacity = '0';
+        setTimeout(() => {
+          row.remove();
+          this.state.items = this.state.items.filter((m, i) => (m.id || `m-${i}`) !== id);
+          const tbody = document.querySelector('#msg-results tbody');
+          if (tbody && tbody.children.length === 0) {
+            const results = document.getElementById('msg-results');
+            results.innerHTML = '<div class="text-sm text-muted">No messages found</div>';
+          }
+        }, 200);
+      }
+    });
   }
 };
 

@@ -1,7 +1,12 @@
 """
 Soft-delete registry for resources that Honcho doesn't support deleting natively.
-Peers, messages, and conclusions can only be soft-deleted locally.
-Honcho does support hard-deleting workspaces and sessions.
+Peers can only be soft-deleted locally.
+
+Conclusions and messages CAN be hard-deleted via Honcho:
+  DELETE /api/workspaces/{wid}/conclusions/{cid}
+  DELETE /api/workspaces/{wid}/sessions/{sid}/messages/{mid}
+
+Workspaces and sessions can also be hard-deleted via Honcho.
 
 I sold my soul to Satan for this. Worst trade ever.
 """

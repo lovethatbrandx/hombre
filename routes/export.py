@@ -534,6 +534,45 @@ async def merge_workspaces(req: MergeRequest):
     return report
 
 
+# ─── Hard-Delete Endpoints (Honcho proxy) ──────────────────────────────────
+
+
+@workspace_router.delete("/{wid}/conclusions/{cid}")
+async def delete_conclusion(wid: str, cid: str):
+    """Delete a conclusion from Honcho permanently.
+
+    Proxies DELETE /v3/workspaces/{wid}/conclusions/{cid}.
+    This actually removes the conclusion from Honcho — not a soft-delete.
+    """
+    if not VALID_ID.match(wid):
+        raise HTTPException(status_code=400, detail="invalid_workspace_id")
+    if not VALID_ID.match(cid):
+        raise HTTPException(status_code=400, detail="invalid_conclusion_id")
+
+    log.info("Deleting conclusion %s from workspace %s", cid, wid)
+    result = await _honcho_request("DELETE", f"/v3/workspaces/{wid}/conclusions/{cid}")
+    return {"status": "deleted", "workspace_id": wid, "conclusion_id": cid}
+
+
+@workspace_router.delete("/{wid}/sessions/{sid}/messages/{mid}")
+async def delete_message(wid: str, sid: str, mid: str):
+    """Delete a message from a Honcho session permanently.
+
+    Proxies DELETE /v3/workspaces/{wid}/sessions/{sid}/messages/{mid}.
+    This actually removes the message from Honcho — not a soft-delete.
+    """
+    if not VALID_ID.match(wid):
+        raise HTTPException(status_code=400, detail="invalid_workspace_id")
+    if not VALID_ID.match(sid):
+        raise HTTPException(status_code=400, detail="invalid_session_id")
+    if not VALID_ID.match(mid):
+        raise HTTPException(status_code=400, detail="invalid_message_id")
+
+    log.info("Deleting message %s from session %s in workspace %s", mid, sid, wid)
+    result = await _honcho_request("DELETE", f"/v3/workspaces/{wid}/sessions/{sid}/messages/{mid}")
+    return {"status": "deleted", "workspace_id": wid, "session_id": sid, "message_id": mid}
+
+
 @router.post("/import/workspace")
 async def import_preview(file: UploadFile = File(...)):
     """Upload a JSON export file and get an import preview with conflict info.
