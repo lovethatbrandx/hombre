@@ -19,6 +19,12 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 HONCHO_ENV_PATH = os.environ.get("HONCHO_ENV_PATH", "")
 HONCHO_COMPOSE_DIR = os.environ.get("HONCHO_COMPOSE_DIR", "")
 
+# Hombre's own .env file (for Supabase config etc.)
+_HOMBRE_ENV_PATH = Path(os.environ.get("HOMBRE_ENV_PATH", str(Path(__file__).parent.parent / ".env")))
+
+BACKUP_DIR = Path(os.environ.get("HOMBRE_BACKUP_DIR", "/app/data/backups"))
+COMPOSE_RESTART_TIMEOUT = 60
+
 DIALECTIC_LEVELS = ["minimal", "low", "medium", "high", "max"]
 
 # Virtual keys the frontend sends — mapped to all dialectic levels on write.
@@ -223,6 +229,101 @@ async def read_settings(request: Request):
     return {"sections": sections, "env_path": HONCHO_ENV_PATH}
 
 
+# ---------------------------------------------------------------------------
+# Supabase configuration (Hombre's own env)
+# ---------------------------------------------------------------------------
+
+SUPABASE_ENV_KEYS = ("SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_SERVICE_KEY")
+
+
+def _mask_key(value: str) -> str:
+    """Show first 4 + last 4 chars with **** in between. Short values fully masked."""
+    if not value or len(value) <= 8:
+        return "****" if value else ""
+    return f"{value[:4]}****{value[-4:]}"
+
+
+def _read_hombre_env() -> dict:
+    """Read Hombre's own .env file as a dict.
+
+    Delegates to :func:`parse_env_file`; silently returns an empty dict if the
+    file is missing or unreadable (non-fatal for settings reads).
+    """
+    try:
+        return parse_env_file(str(_HOMBRE_ENV_PATH))
+    except HTTPException:
+        return {}
+
+
+def _write_hombre_env(data: dict) -> None:
+    """Write/replace keys in Hombre's .env file. Creates if missing."""
+    env = _read_hombre_env()
+    env.update(data)
+
+    lines = []
+    for key, value in env.items():
+        lines.append(f"{key}={sanitize_value(str(value))}")
+
+    # Backup before modifying (consistent with _write_dashboard_users_to_env)
+    if _HOMBRE_ENV_PATH.exists():
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        backup_path = BACKUP_DIR / (_HOMBRE_ENV_PATH.name + ".bak")
+        shutil.copy2(_HOMBRE_ENV_PATH, backup_path)
+
+    _HOMBRE_ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _HOMBRE_ENV_PATH.write_text("\n".join(lines) + "\n")
+
+
+@router.get("/supabase")
+async def read_supabase_settings(request: Request):
+    """Read Supabase config from Hombre's own env vars."""
+    user = _get_user(request)
+    _audit("settings.supabase.read", user=user)
+
+    env = _read_hombre_env()
+    # Also pull live values from os.environ as fallback
+    result = {}
+    for key in SUPABASE_ENV_KEYS:
+        raw = env.get(key) or os.environ.get(key, "")
+        if key == "SUPABASE_URL":
+            result[key] = raw
+        else:
+            result[key] = _mask_key(raw)
+
+    configured = all(os.environ.get(k) for k in SUPABASE_ENV_KEYS)
+    return {"supabase": result, "configured": configured}
+
+
+class SupabaseWriteRequest(BaseModel):
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+
+
+@router.post("/supabase")
+async def write_supabase_settings(req: SupabaseWriteRequest, request: Request):
+    """Write Supabase config to Hombre's .env and set in os.environ."""
+    user = _get_user(request)
+
+    data = {
+        "SUPABASE_URL": req.SUPABASE_URL.strip(),
+        "SUPABASE_KEY": req.SUPABASE_KEY.strip(),
+        "SUPABASE_SERVICE_KEY": req.SUPABASE_SERVICE_KEY.strip(),
+    }
+
+    _write_hombre_env(data)
+
+    # Update os.environ so values take effect immediately
+    for key, value in data.items():
+        if value:
+            os.environ[key] = value
+        elif key in os.environ:
+            del os.environ[key]
+
+    _audit("settings.supabase.write", user=user, detail=f"keys={list(data.keys())}")
+    return {"status": "ok"}
+
+
 @router.post("/write")
 async def write_settings(req: SettingsWriteRequest, request: Request):
     _require_env_path()
@@ -243,9 +344,6 @@ async def write_settings(req: SettingsWriteRequest, request: Request):
     write_env_file(HONCHO_ENV_PATH, data)
     _audit("settings.write", user=user, detail=f"keys={changed_keys}")
     return {"status": "ok", "env_path": HONCHO_ENV_PATH}
-
-
-BACKUP_DIR = Path(os.environ.get("HOMBRE_BACKUP_DIR", "/app/data/backups"))
 
 
 @router.post("/backup")
@@ -324,7 +422,7 @@ async def restart_containers(request: Request):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=COMPOSE_RESTART_TIMEOUT)
         if proc.returncode != 0:
             log.error("Docker compose failed: %s", stderr.decode())
             raise HTTPException(status_code=500, detail="compose_restart_failed")

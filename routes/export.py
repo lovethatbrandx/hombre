@@ -3,10 +3,6 @@ Export/Import routes for Hombre.
 
 Provides endpoints to export workspace data (peers, sessions, conclusions, messages)
 to a portable JSON format, and import from that format into a workspace.
-
-Hihi! I love data portability! Just wanted to remind you that every export
-includes a validation step — because nothing worse than importing bad data.
-Everything is going to be okay!
 """
 
 import json
@@ -25,6 +21,8 @@ router = APIRouter(prefix="/api/export", tags=["export"])
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 
 EXPORT_VERSION = "1.0"
+# NOTE: VALID_ID is also defined in app.py. Both are kept in sync intentionally
+# to avoid circular imports; update both if the pattern changes.
 VALID_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 MAX_IMPORT_SIZE = 10 * 1024 * 1024  # 10MB limit for import files
 
@@ -101,7 +99,12 @@ async def _honcho_request(method: str, path: str, body: Any = None) -> Any:
         if resp.status_code >= 400:
             detail = ""
             try:
-                detail = resp.json()
+                resp_json = resp.json()
+                # Unwrap upstream {"detail": "..."} to avoid double-nesting
+                if isinstance(resp_json, dict) and "detail" in resp_json:
+                    detail = resp_json["detail"]
+                else:
+                    detail = resp_json
             except Exception:
                 detail = resp.text
             log.warning("Honcho API error %d on %s %s: %s", resp.status_code, method, path, detail)
@@ -287,7 +290,8 @@ async def _workspace_exists(wid: str) -> bool:
     try:
         ws_data = await _honcho_request("POST", "/v3/workspaces/list", {"filters": {}})
         return any(w.get("id") == wid for w in ws_data.get("items", []))
-    except HTTPException:
+    except HTTPException as e:
+        log.warning("Failed to check workspace existence for %s: %s", wid, e.detail)
         return False
 
 
@@ -296,7 +300,8 @@ async def _fetch_peers(wid: str) -> list[dict]:
     try:
         data = await _honcho_request("POST", f"/v3/workspaces/{wid}/peers/list", {"filters": {}})
         return data.get("items", [])
-    except HTTPException:
+    except HTTPException as e:
+        log.warning("Failed to fetch peers for workspace %s: %s", wid, e.detail)
         return []
 
 
@@ -305,7 +310,8 @@ async def _fetch_sessions(wid: str) -> list[dict]:
     try:
         data = await _honcho_request("POST", f"/v3/workspaces/{wid}/sessions/list", {"filters": {}})
         return data.get("items", [])
-    except HTTPException:
+    except HTTPException as e:
+        log.warning("Failed to fetch sessions for workspace %s: %s", wid, e.detail)
         return []
 
 
@@ -571,6 +577,25 @@ async def delete_message(wid: str, sid: str, mid: str):
     log.info("Deleting message %s from session %s in workspace %s", mid, sid, wid)
     result = await _honcho_request("DELETE", f"/v3/workspaces/{wid}/sessions/{sid}/messages/{mid}")
     return {"status": "deleted", "workspace_id": wid, "session_id": sid, "message_id": mid}
+
+
+# ─── Catch-all proxy routes (must be LAST on this router) ──────────────────
+# These prevent workspace_router from intercepting requests meant for the
+# Honcho proxy (GET/POST on /api/workspaces itself).
+
+
+@workspace_router.get("/{path:path}")
+async def workspace_proxy_get(path: str):
+    """Catch-all GET proxy so workspace_router doesn't block list/detail requests."""
+    full_path = f"/v3/workspaces/{path}" if path else "/v3/workspaces/list"
+    return await _honcho_request("GET", full_path)
+
+
+@workspace_router.post("/{path:path}")
+async def workspace_proxy_post(path: str, body: dict | None = None):
+    """Catch-all POST proxy so workspace_router doesn't block list/create requests."""
+    full_path = f"/v3/workspaces/{path}" if path else "/v3/workspaces/list"
+    return await _honcho_request("POST", full_path, body or {})
 
 
 @router.post("/import/workspace")

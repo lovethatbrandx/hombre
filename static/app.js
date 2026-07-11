@@ -503,7 +503,7 @@ const ExportImport = {
         btn.textContent = 'Failed';
         setTimeout(() => { btn.textContent = 'Export Workspace'; btn.disabled = false; }, 2000);
       }
-      alert(`Export failed: ${e.message}`);
+      App.toast(`Export failed: ${e.message}`, 'error');
     }
   },
 
@@ -525,7 +525,7 @@ const ExportImport = {
 
       return await response.json();
     } catch (e) {
-      alert(`Import preview failed: ${e.message}`);
+      App.toast(`Import preview failed: ${e.message}`, 'error');
       return null;
     }
   },
@@ -551,7 +551,7 @@ const ExportImport = {
 
       return await response.json();
     } catch (e) {
-      alert(`Import failed: ${e.message}`);
+      App.toast(`Import failed: ${e.message}`, 'error');
       return null;
     }
   },
@@ -606,7 +606,6 @@ const ExportImport = {
       <select class="input mt-1" id="import-strategy">
         <option value="skip">Skip conflicting resources</option>
         <option value="rename">Rename with -imported suffix</option>
-        <option value="rename">Rename (add -merged suffix)</option>
       </select>
     `;
     bodyParts.push(strategyDiv);
@@ -765,7 +764,7 @@ const OverviewTab = {
             App.renderTab(App.state.activeTab);
           } catch (e) {
             Modal.close();
-            alert(`Delete failed: ${e.message}`);
+            App.toast(`Delete failed: ${e.message}`, 'error');
           }
         });
       });
@@ -1144,7 +1143,7 @@ const SessionsTab = {
             App.renderTab(App.state.activeTab);
           } catch (e) {
             Modal.close();
-            alert(`Delete failed: ${e.message}`);
+            App.toast(`Delete failed: ${e.message}`, 'error');
           }
         });
       });
@@ -1353,6 +1352,14 @@ const ChatTab = {
         const lines = buffer.split('\n');
         buffer = lines.pop();
 
+        const clearTypingIndicator = () => {
+          if (!gotFirstChunk) {
+            typingEl.classList.remove('typing');
+            typingEl.innerHTML = '';
+            gotFirstChunk = true;
+          }
+        };
+
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
@@ -1361,12 +1368,7 @@ const ChatTab = {
               const parsed = JSON.parse(data);
               const chunk = parsed.delta?.content || parsed.content || '';
               if (chunk) {
-                // Remove typing indicator on first chunk
-                if (!gotFirstChunk) {
-                  typingEl.classList.remove('typing');
-                  typingEl.innerHTML = '';
-                  gotFirstChunk = true;
-                }
+                clearTypingIndicator();
                 content += chunk;
                 typingEl.textContent = content;
                 const now = Date.now();
@@ -1376,22 +1378,12 @@ const ChatTab = {
                 }
               }
             } catch {
-              // Remove typing indicator on first chunk
-              if (!gotFirstChunk) {
-                typingEl.classList.remove('typing');
-                typingEl.innerHTML = '';
-                gotFirstChunk = true;
-              }
+              clearTypingIndicator();
               content += data;
               typingEl.textContent = content;
             }
           } else if (line.trim() && !line.startsWith(':')) {
-            // Remove typing indicator on first chunk
-            if (!gotFirstChunk) {
-              typingEl.classList.remove('typing');
-              typingEl.innerHTML = '';
-              gotFirstChunk = true;
-            }
+            clearTypingIndicator();
             content += line;
             typingEl.textContent = content;
           }
@@ -1568,8 +1560,7 @@ const ConclusionsTab = {
       this.state.items = allResults;
       this.state.allLoaded = true;
       this.renderResults(results, allResults);
-    } catch (e) {
-      console.error('Search failed:', e);
+    } catch {
       this.state.items = [];
       this.state.allLoaded = false;
       this.state.currentQuery = null;
@@ -1869,9 +1860,10 @@ const SettingsTab = {
     `;
 
     // Load users and settings in parallel
-    const [settingsResult, usersResult] = await Promise.allSettled([
+    const [settingsResult, usersResult, supabaseResult] = await Promise.allSettled([
       fetch('/api/settings/read'),
       fetch('/api/settings/users'),
+      fetch('/api/settings/supabase'),
     ]);
 
     // Handle settings load
@@ -1917,11 +1909,30 @@ const SettingsTab = {
       } catch {}
     }
 
+    // Parse Supabase config
+    this._supabaseConfigured = false;
+    this._supabaseData = {};
+    if (supabaseResult.status === 'fulfilled' && supabaseResult.value.ok) {
+      try {
+        const sbData = await supabaseResult.value.json();
+        this._supabaseConfigured = sbData.configured || false;
+        this._supabaseData = sbData.supabase || {};
+      } catch {}
+    }
+
     try {
       const data = await settingsResult.value.json();
       this.original = this.flattenSections(data.sections);
       this.dirty = {};
       this.renderSections(el, data.sections);
+
+      // Populate Supabase fields
+      const sbUrl = document.getElementById('supabase-url');
+      const sbKey = document.getElementById('supabase-key');
+      const sbServiceKey = document.getElementById('supabase-service-key');
+      if (sbUrl) sbUrl.value = this._supabaseData.SUPABASE_URL || '';
+      if (sbKey) sbKey.value = this._supabaseData.SUPABASE_KEY || '';
+      if (sbServiceKey) sbServiceKey.value = this._supabaseData.SUPABASE_SERVICE_KEY || '';
     } catch (e) {
       el.innerHTML = `
         <div class="tab-header"><h2>Settings</h2><p>Configure dashboard access and Honcho server models</p></div>
@@ -1972,6 +1983,9 @@ const SettingsTab = {
 
     // Dashboard Credentials section (at the very top)
     html += this.renderCredentialsSection();
+
+    // Supabase section
+    html += this.renderSupabaseSection();
 
     for (const def of sectionDefs) {
       const sectionData = sections[def.key];
@@ -2054,6 +2068,52 @@ const SettingsTab = {
             <div class="flex gap-2 mt-3">
               <button class="btn btn-ghost" data-action="credential-add">+ Add User</button>
               <button class="btn btn-primary" data-action="credential-save">Save Credentials</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  renderSupabaseSection() {
+    const statusDot = this._supabaseConfigured
+      ? '<span class="status-dot status-dot-green"></span><span class="text-xs" style="color:var(--green)">Configured</span>'
+      : '<span class="status-dot status-dot-gray"></span><span class="text-xs text-muted">Not Configured</span>';
+
+    return `
+      <div class="accordion" data-section="supabase">
+        <div class="accordion-header" data-action="toggle-accordion">
+          <div class="flex items-center gap-2">
+            <span>⚡ Supabase</span>
+            ${statusDot}
+          </div>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="accordion-body">
+          <div class="accordion-content">
+            <div class="text-xs text-muted mb-2">Supabase credentials for dashboard auth and database storage. Changes take effect immediately.</div>
+            <div class="flex flex-col gap-2">
+              <div class="settings-field">
+                <label>Project URL</label>
+                <input type="text" class="input" id="supabase-url" placeholder="https://your-project.supabase.co" value="">
+              </div>
+              <div class="settings-field">
+                <label>Anon Key (public)</label>
+                <div class="settings-masked">
+                  <input type="password" class="input" id="supabase-key" value="" placeholder="••••">
+                  <button class="settings-mask-toggle" data-action="toggle-mask" data-key="supabase-key">show</button>
+                </div>
+              </div>
+              <div class="settings-field">
+                <label>Service Role Key (secret)</label>
+                <div class="settings-masked">
+                  <input type="password" class="input" id="supabase-service-key" value="" placeholder="••••">
+                  <button class="settings-mask-toggle" data-action="toggle-mask" data-key="supabase-service-key">show</button>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2 mt-3">
+              <button class="btn btn-primary" data-action="supabase-save">Save Supabase Config</button>
             </div>
           </div>
         </div>
@@ -2245,6 +2305,55 @@ const SettingsTab = {
       this.renderCredentialList();
     } catch (e) {
       App.toast(`Failed to save credentials: ${e.message}`, 'error');
+    }
+  },
+
+  async saveSupabase() {
+    const url = document.getElementById('supabase-url')?.value.trim() || '';
+    const key = document.getElementById('supabase-key')?.value.trim() || '';
+    const serviceKey = document.getElementById('supabase-service-key')?.value.trim() || '';
+
+    try {
+      const res = await fetch('/api/settings/supabase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          SUPABASE_URL: url,
+          SUPABASE_KEY: key,
+          SUPABASE_SERVICE_KEY: serviceKey,
+        }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+
+      this._supabaseConfigured = !!(url && key && serviceKey);
+      this._supabaseData = { SUPABASE_URL: url, SUPABASE_KEY: key, SUPABASE_SERVICE_KEY: serviceKey };
+
+      // Update status indicator
+      const accordion = document.querySelector('[data-section="supabase"]');
+      if (accordion) {
+        const header = accordion.querySelector('.accordion-header > .flex');
+        if (header) {
+          const dot = header.querySelector('.status-dot');
+          const label = header.querySelector('.text-xs');
+          if (dot && label) {
+            if (this._supabaseConfigured) {
+              dot.className = 'status-dot status-dot-green';
+              label.className = 'text-xs';
+              label.style.color = 'var(--green)';
+              label.textContent = 'Configured';
+            } else {
+              dot.className = 'status-dot status-dot-gray';
+              label.className = 'text-xs text-muted';
+              label.style.color = '';
+              label.textContent = 'Not Configured';
+            }
+          }
+        }
+      }
+
+      App.toast('Supabase config saved', 'success');
+    } catch (e) {
+      App.toast(`Failed to save Supabase config: ${e.message}`, 'error');
     }
   },
 
@@ -2669,6 +2778,9 @@ const SettingsTab = {
     el.querySelector('[data-action="credential-add"]')?.addEventListener('click', () => this.addUser());
     el.querySelector('[data-action="credential-save"]')?.addEventListener('click', () => this.saveUsers());
 
+    // Supabase event handlers
+    el.querySelector('[data-action="supabase-save"]')?.addEventListener('click', () => this.saveSupabase());
+
     el.querySelectorAll('[data-action="credential-delete"]').forEach(btn => {
       btn.addEventListener('click', () => this.deleteUser(parseInt(btn.dataset.credentialIdx)));
     });
@@ -2738,13 +2850,15 @@ const SettingsTab = {
   },
 
   async waitForHealth() {
-    for (let i = 0; i < 30; i++) {
+    const MAX_RETRIES = 30;
+    const RETRY_DELAY_MS = 2000;
+    for (let i = 0; i < MAX_RETRIES; i++) {
       try {
         const res = await fetch('/api/health');
         const data = await res.json();
         if (data.status === 'ok') return true;
       } catch {}
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
     }
     return false;
   },
@@ -2757,7 +2871,7 @@ const SettingsTab = {
       btn.textContent = 'Backed up';
       setTimeout(() => { btn.textContent = 'Create Backup'; }, 2000);
     } catch (e) {
-      alert(`Backup failed: ${e.message}`);
+      App.toast(`Backup failed: ${e.message}`, 'error');
     }
   },
 
