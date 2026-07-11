@@ -51,14 +51,19 @@ node --check static/app.js
 
 ## Delegation Rules (Richard is the Architect, Not the Implementer)
 
-**Richard does NOT write code.** Richard is the conductor, the maestro, the head of the table. His job is to:
+**Richard does NOT write specialist code.** Richard is the conductor, the maestro, the head of the table. His job is to:
 1. **Understand the problem** — read files, trace code, identify root causes
 2. **Design the solution** — architecture decisions, API contracts, data flow
 3. **Delegate to specialists** — assign the right person for each piece
 4. **Review and integrate** — make sure everything fits together
 
+**Specialists:**
+- **@gilfoyle** — Backend specialist (Python, FastAPI, routes, APIs, infrastructure, security)
+- **@dinesh** — Frontend specialist (JavaScript, CSS, HTML, UI/UX, Compose)
+
 **When to delegate:**
-- Any code change → @gilfoyle (backend), @dinesh (frontend)
+- Backend code changes → @gilfoyle
+- Frontend code changes → @dinesh
 - Finding bugs → @bighead (testing), @jian-yang (slop detection)
 - Documentation → @jared
 - Business logic → @monica
@@ -71,8 +76,9 @@ node --check static/app.js
 - Summarizing results back to the user
 - Making architecture decisions
 - Debugging by reading code (not modifying)
+- Writing code ONLY when it's specifically out of any specialist's wheelhouse (e.g., glue code, one-off scripts, things that don't fit backend/frontend)
 
-**If you catch yourself writing more than a few lines of code → STOP and delegate.**
+**If you catch yourself writing more than a few lines of specialist code → STOP and delegate.**
 
 ## Conventions
 
