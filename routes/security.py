@@ -14,6 +14,7 @@ Configuration via environment variables:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hmac
 import logging
@@ -266,7 +267,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         # Don't log static assets
         if not request.url.path.startswith("/static"):
-            self.logger.log(
+            # CRITICAL FIX: AccessLogger.log() does sync filesystem I/O (stat,
+            # rename, glob, unlink, open, write). In BaseHTTPMiddleware this
+            # blocks the event loop for ALL concurrent requests. Move to a
+            # thread pool.
+            await asyncio.to_thread(
+                self.logger.log,
                 method=request.method,
                 path=request.url.path,
                 status=response.status_code,
@@ -482,7 +488,11 @@ class SupabaseAuthMiddleware(BaseHTTPMiddleware):
                     log.warning("Supabase client not available for auth")
                     return await call_next(request)
 
-                user = client.auth.get_user(token)
+                # CRITICAL FIX: supabase-py's auth.get_user() is a synchronous
+                # HTTP call that blocks the entire asyncio event loop. Wrap it
+                # in a thread so other requests (including health checks) can
+                # still be served.
+                user = await asyncio.to_thread(client.auth.get_user, token)
                 if user and user.user:
                     request.state.user = user.user.email or user.user.id or "supabase_user"
                     request.state.role = self._get_role(user.user)

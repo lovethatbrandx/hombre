@@ -13,6 +13,7 @@ I sold my soul to Satan for this. Worst trade ever.
 
 import json
 import logging
+import asyncio
 import time
 from pathlib import Path
 
@@ -166,17 +167,18 @@ async def soft_delete(req: SoftDeleteRequest):
     # --- Supabase path ---
     if is_admin_configured():
         # Check for duplicates
-        existing = _load_deleted_supabase(req.type, req.workspace_id)
+        existing = await asyncio.to_thread(_load_deleted_supabase, req.type, req.workspace_id)
         for entry in existing:
             if entry["id"] == req.id:
                 return {"status": "already_deleted", "id": req.id}
 
-        _save_deleted_supabase(req.type, req.id, req.workspace_id)
+        await asyncio.to_thread(_save_deleted_supabase, req.type, req.id, req.workspace_id)
         log.info("Soft-deleted %s %s in workspace %s (Supabase)", req.type, req.id, req.workspace_id)
         return {"status": "deleted", "id": req.id, "type": req.type}
 
     # --- File-based fallback ---
-    data = _load_deleted()
+    # CRITICAL FIX: _load_deleted() and _save_deleted() do synchronous file I/O.
+    data = await asyncio.to_thread(_load_deleted)
     key = _type_to_key(req.type)
 
     # Check for duplicates
@@ -190,7 +192,7 @@ async def soft_delete(req: SoftDeleteRequest):
         "deleted_at": time.time(),
     }
     data[key].append(entry)
-    _save_deleted(data)
+    await asyncio.to_thread(_save_deleted, data)
 
     log.info("Soft-deleted %s %s in workspace %s", req.type, req.id, req.workspace_id)
     return {"status": "deleted", "id": req.id, "type": req.type}
@@ -204,13 +206,13 @@ async def soft_delete_check(req: SoftDeleteCheckRequest):
 
     # --- Supabase path ---
     if is_admin_configured():
-        deleted_entries = _load_deleted_supabase(req.type, req.workspace_id)
+        deleted_entries = await asyncio.to_thread(_load_deleted_supabase, req.type, req.workspace_id)
         deleted_ids = {entry["id"] for entry in deleted_entries}
         results = {rid: rid in deleted_ids for rid in req.ids}
         return {"type": req.type, "results": results}
 
     # --- File-based fallback ---
-    data = _load_deleted()
+    data = await asyncio.to_thread(_load_deleted)
     key = _type_to_key(req.type)
 
     # Filter by workspace_id to prevent cross-workspace data leaks
@@ -228,10 +230,10 @@ async def soft_delete_list(type: str | None = None):
         if type:
             if type not in VALID_TYPES:
                 raise HTTPException(status_code=400, detail=f"invalid_type: must be one of {sorted(VALID_TYPES)}")
-            items = _load_deleted_supabase(type)
+            items = await asyncio.to_thread(_load_deleted_supabase, type)
             return {"type": type, "items": items}
 
-        data = _load_deleted_supabase_all()
+        data = await asyncio.to_thread(_load_deleted_supabase_all)
         return {
             "peers": data["peers"],
             "messages": data["messages"],
@@ -239,7 +241,7 @@ async def soft_delete_list(type: str | None = None):
         }
 
     # --- File-based fallback ---
-    data = _load_deleted()
+    data = await asyncio.to_thread(_load_deleted)
 
     if type:
         if type not in VALID_TYPES:
@@ -264,14 +266,14 @@ async def soft_delete_restore(req: SoftDeleteRestoreRequest):
 
     # --- Supabase path ---
     if is_admin_configured():
-        deleted = _delete_from_supabase(req.type, req.id, req.workspace_id)
+        deleted = await asyncio.to_thread(_delete_from_supabase, req.type, req.id, req.workspace_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="not_found")
         log.info("Restored %s %s in workspace %s (Supabase)", req.type, req.id, req.workspace_id)
         return {"status": "restored", "id": req.id, "type": req.type}
 
     # --- File-based fallback ---
-    data = _load_deleted()
+    data = await asyncio.to_thread(_load_deleted)
     key = _type_to_key(req.type)
 
     original_len = len(data[key])
@@ -283,6 +285,6 @@ async def soft_delete_restore(req: SoftDeleteRestoreRequest):
     if len(data[key]) == original_len:
         raise HTTPException(status_code=404, detail="not_found")
 
-    _save_deleted(data)
+    await asyncio.to_thread(_save_deleted, data)
     log.info("Restored %s %s in workspace %s", req.type, req.id, req.workspace_id)
     return {"status": "restored", "id": req.id, "type": req.type}

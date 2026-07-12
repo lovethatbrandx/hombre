@@ -1,5 +1,6 @@
 import os
 import re
+import asyncio
 import hmac
 import base64
 import logging
@@ -281,7 +282,10 @@ async def proxy(path: str, request: Request):
 
 @app.get("/")
 async def index():
-    return HTMLResponse((static_dir / "index.html").read_text())
+    # CRITICAL FIX: Path.read_text() is synchronous I/O that blocks the
+    # event loop. Move to a thread pool.
+    html = await asyncio.to_thread((static_dir / "index.html").read_text)
+    return HTMLResponse(html)
 
 
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")

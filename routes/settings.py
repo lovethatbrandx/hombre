@@ -68,15 +68,20 @@ AUDIT_LOG_DIR = Path(os.environ.get("HOMBRE_LOG_DIR", "logs"))
 AUDIT_LOG_FILE = AUDIT_LOG_DIR / "audit.log"
 
 
-def _audit(action: str, user: str = "", detail: str = "") -> None:
+async def _audit(action: str, user: str = "", detail: str = "") -> None:
     """Append an audit entry to the audit log."""
     now = datetime.now(timezone.utc).isoformat()
 
     # --- Supabase path ---
     if is_admin_configured():
-        _audit_supabase(action, user, detail, now)
+        await _audit_supabase(action, user, detail, now)
 
     # --- File-based logging (always, as backup) ---
+    await asyncio.to_thread(_write_audit_file, action, user, detail, now)
+
+
+def _write_audit_file(action: str, user: str, detail: str, now: str) -> None:
+    """Sync helper: write a single audit line to disk."""
     AUDIT_LOG_DIR.mkdir(parents=True, exist_ok=True)
     parts = [now, action]
     if user:
@@ -91,7 +96,7 @@ def _audit(action: str, user: str = "", detail: str = "") -> None:
         log.warning("Failed to write audit log: %s", e)
 
 
-def _audit_supabase(action: str, user: str, detail: str, timestamp: str) -> None:
+async def _audit_supabase(action: str, user: str, detail: str, timestamp: str) -> None:
     """Insert an audit log entry into Supabase."""
     client = get_admin_client()
     if not client:
@@ -99,13 +104,17 @@ def _audit_supabase(action: str, user: str, detail: str, timestamp: str) -> None
 
     try:
         details = {"raw": detail} if detail else {}
-        client.table("audit_logs").insert(
-            {
-                "action": action,
-                "username": user or None,
-                "details": details if details else None,
-            }
-        ).execute()
+        # CRITICAL FIX: supabase-py's .execute() is a synchronous HTTP call.
+        # Wrap in a thread to avoid blocking the event loop.
+        await asyncio.to_thread(
+            lambda: client.table("audit_logs").insert(
+                {
+                    "action": action,
+                    "username": user or None,
+                    "details": details if details else None,
+                }
+            ).execute()
+        )
     except Exception as e:
         log.warning("Failed to write audit log to Supabase: %s", e)
 
@@ -186,8 +195,9 @@ class SettingsWriteRequest(BaseModel):
 async def read_settings(request: Request):
     _require_env_path()
     user = _get_user(request)
-    env = parse_env_file(HONCHO_ENV_PATH)
-    _audit("settings.read", user=user)
+    # CRITICAL FIX: parse_env_file() calls Path.read_text() — synchronous I/O.
+    env = await asyncio.to_thread(parse_env_file, HONCHO_ENV_PATH)
+    await _audit("settings.read", user=user)
     sections = {
         "llm": {
             "LLM_OPENAI_API_KEY": env.get("LLM_OPENAI_API_KEY", ""),
@@ -280,7 +290,7 @@ def _write_hombre_env(data: dict) -> None:
 async def read_supabase_settings(request: Request):
     """Read Supabase config from Hombre's own env vars."""
     user = _get_user(request)
-    _audit("settings.supabase.read", user=user)
+    await _audit("settings.supabase.read", user=user)
 
     env = _read_hombre_env()
     # Also pull live values from os.environ as fallback
@@ -313,7 +323,9 @@ async def write_supabase_settings(req: SupabaseWriteRequest, request: Request):
         "SUPABASE_SERVICE_KEY": req.SUPABASE_SERVICE_KEY.strip(),
     }
 
-    _write_hombre_env(data)
+    # CRITICAL FIX: _write_hombre_env() calls shutil.copy2() and
+    # Path.write_text() — synchronous I/O that blocks the event loop.
+    await asyncio.to_thread(_write_hombre_env, data)
 
     # Update os.environ so values take effect immediately
     for key, value in data.items():
@@ -322,7 +334,7 @@ async def write_supabase_settings(req: SupabaseWriteRequest, request: Request):
         elif key in os.environ:
             del os.environ[key]
 
-    _audit("settings.supabase.write", user=user, detail=f"keys={list(data.keys())}")
+    await _audit("settings.supabase.write", user=user, detail=f"keys={list(data.keys())}")
     return {"status": "ok"}
 
 
@@ -343,8 +355,11 @@ async def write_settings(req: SettingsWriteRequest, request: Request):
     data.update(dialectic_expansions)
 
     changed_keys = list(data.keys())
-    write_env_file(HONCHO_ENV_PATH, data)
-    _audit("settings.write", user=user, detail=f"keys={changed_keys}")
+    # CRITICAL FIX: write_env_file() calls shutil.copy2(), Path.read_text(),
+    # and Path.write_text() — all synchronous filesystem operations that block
+    # the event loop. Move to a thread pool.
+    await asyncio.to_thread(write_env_file, HONCHO_ENV_PATH, data)
+    await _audit("settings.write", user=user, detail=f"keys={changed_keys}")
     return {"status": "ok", "env_path": HONCHO_ENV_PATH}
 
 
@@ -357,8 +372,9 @@ async def create_backup(request: Request):
         raise HTTPException(status_code=404, detail="env_file_not_found")
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     backup_path = BACKUP_DIR / (env_path.name + ".bak")
-    shutil.copy2(env_path, backup_path)
-    _audit("settings.backup", user=user)
+    # CRITICAL FIX: shutil.copy2() is synchronous I/O that blocks the event loop.
+    await asyncio.to_thread(shutil.copy2, env_path, backup_path)
+    await _audit("settings.backup", user=user)
     return {"status": "backed up", "backup_path": str(backup_path)}
 
 
@@ -368,8 +384,16 @@ async def list_backups(request: Request):
     _require_env_path()
     user = _get_user(request)
 
+    # CRITICAL FIX: iterdir() + stat() are synchronous filesystem operations.
+    backups = await asyncio.to_thread(_list_backup_files)
+    await _audit("settings.backups.list", user=user)
+    return {"backups": backups}
+
+
+def _list_backup_files() -> list[dict]:
+    """Sync helper: list backup files with metadata."""
     if not BACKUP_DIR.exists():
-        return {"backups": []}
+        return []
 
     backups = []
     for f in sorted(BACKUP_DIR.iterdir()):
@@ -380,9 +404,7 @@ async def list_backups(request: Request):
                 "size": stat.st_size,
                 "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
             })
-
-    _audit("settings.backups.list", user=user)
-    return {"backups": backups}
+    return backups
 
 
 class RestoreRequest(BaseModel):
@@ -406,8 +428,9 @@ async def restore_backup(request: Request, body: RestoreRequest | None = None):
 
     if not backup_path.exists():
         raise HTTPException(status_code=404, detail="backup_not_found")
-    shutil.copy2(backup_path, env_path)
-    _audit("settings.restore", user=user, detail=f"file={backup_path.name}")
+    # CRITICAL FIX: shutil.copy2() is synchronous I/O that blocks the event loop.
+    await asyncio.to_thread(shutil.copy2, backup_path, env_path)
+    await _audit("settings.restore", user=user, detail=f"file={backup_path.name}")
     return {"status": "restored", "file": backup_path.name}
 
 
@@ -416,7 +439,7 @@ async def restart_containers(request: Request):
     _require_env_path()
     _require_compose_dir()
     user = _get_user(request)
-    _audit("settings.restart", user=user)
+    await _audit("settings.restart", user=user)
     try:
         proc = await asyncio.create_subprocess_exec(
             "docker", "compose", "up", "-d", "--force-recreate",
@@ -486,7 +509,7 @@ async def list_users(request: Request):
             "role": info["role"],
         })
 
-    _audit("settings.users.read", user=user)
+    await _audit("settings.users.read", user=user)
     return {"users": result}
 
 
@@ -508,15 +531,16 @@ async def update_users(req: DashboardUsersRequest, request: Request):
                 detail=f"invalid_role: {u.role} (valid: {', '.join(sorted(ROLE_PERMISSIONS))})",
             )
 
-    # Persist to .env file
-    _write_dashboard_users_to_env(req.users)
+    # CRITICAL FIX: _write_dashboard_users_to_env() calls shutil.copy2(),
+    # Path.read_text(), and Path.write_text() — synchronous I/O.
+    await asyncio.to_thread(_write_dashboard_users_to_env, req.users)
 
     # Update the in-memory cache (same dict object the middleware references)
     _users_cache.clear()
     for u in req.users:
         _users_cache[u.username] = {"password": u.password, "role": u.role}
 
-    _audit("settings.users.write", user=user, detail=f"users={[u.username for u in req.users]}")
+    await _audit("settings.users.write", user=user, detail=f"users={[u.username for u in req.users]}")
     return {"status": "ok", "count": len(req.users)}
 
 
@@ -625,7 +649,7 @@ async def trigger_sync(req: SyncTriggerRequest, request: Request):
             detail="observer_required: no peers found and none supplied",
         )
 
-    _audit("sync.trigger", user=user, detail=f"workspace={req.workspace_id} observer={observer}")
+    await _audit("sync.trigger", user=user, detail=f"workspace={req.workspace_id} observer={observer}")
 
     log.info("Triggering manual sync for workspace %s (observer=%s, dream_type=%s)", req.workspace_id, observer, req.dream_type)
     try:
@@ -644,7 +668,7 @@ async def sync_status(wid: str, request: Request):
         raise HTTPException(status_code=400, detail="invalid_workspace_id")
 
     user = _get_user(request)
-    _audit("sync.status", user=user, detail=f"workspace={wid}")
+    await _audit("sync.status", user=user, detail=f"workspace={wid}")
 
     try:
         result = await _honcho_request("GET", f"/v3/workspaces/{wid}/queue/status")

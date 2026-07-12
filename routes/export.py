@@ -8,6 +8,7 @@ to a portable JSON format, and import from that format into a workspace.
 import json
 import os
 import re
+import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -608,13 +609,14 @@ async def delete_conclusion(wid: str, cid: str):
             pass
 
     # Save to trash before deleting from Honcho
-    trash = _load_trash()
+    # CRITICAL FIX: _load_trash() and _save_trash() do synchronous file I/O.
+    trash = await asyncio.to_thread(_load_trash)
     trash["conclusions"].append({
         "workspace_id": wid,
         "conclusion": conclusion_data,
         "deleted_at": datetime.now(timezone.utc).isoformat(),
     })
-    _save_trash(trash)
+    await asyncio.to_thread(_save_trash, trash)
 
     # Delete from Honcho
     await _honcho_request("DELETE", f"/v3/workspaces/{wid}/conclusions/{cid}")
@@ -671,7 +673,7 @@ trash_router = APIRouter(prefix="/api/trash", tags=["trash"])
 @trash_router.get("/conclusions")
 async def list_trashed_conclusions():
     """List all conclusions currently in trash."""
-    return _load_trash()
+    return await asyncio.to_thread(_load_trash)
 
 
 @trash_router.post("/conclusions/{cid}/restore")
@@ -684,7 +686,7 @@ async def restore_trashed_conclusion(cid: str):
     if not VALID_ID.match(cid):
         raise HTTPException(status_code=400, detail="invalid_conclusion_id")
 
-    trash = _load_trash()
+    trash = await asyncio.to_thread(_load_trash)
     idx = next(
         (i for i, item in enumerate(trash["conclusions"]) if item["conclusion"].get("id") == cid),
         None,
@@ -706,7 +708,7 @@ async def restore_trashed_conclusion(cid: str):
 
     # Remove from trash
     trash["conclusions"].pop(idx)
-    _save_trash(trash)
+    await asyncio.to_thread(_save_trash, trash)
 
     return {"status": "restored", "conclusion_id": cid, "workspace_id": wid}
 
@@ -717,7 +719,7 @@ async def permanent_delete_from_trash(cid: str):
     if not VALID_ID.match(cid):
         raise HTTPException(status_code=400, detail="invalid_conclusion_id")
 
-    trash = _load_trash()
+    trash = await asyncio.to_thread(_load_trash)
     idx = next(
         (i for i, item in enumerate(trash["conclusions"]) if item["conclusion"].get("id") == cid),
         None,
@@ -727,7 +729,7 @@ async def permanent_delete_from_trash(cid: str):
 
     log.info("Permanently deleting conclusion %s from trash", cid)
     trash["conclusions"].pop(idx)
-    _save_trash(trash)
+    await asyncio.to_thread(_save_trash, trash)
 
     return {"status": "permanently_deleted", "conclusion_id": cid}
 
