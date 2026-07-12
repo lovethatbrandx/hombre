@@ -396,6 +396,7 @@ const App = {
   _syncIndicatorLastUpdate: null,
   _syncIndicatorPrevPending: null,
   _syncIndicatorInFlight: false,
+  _syncIndicatorFailureStreak: 0,
 
   initSyncIndicator() {
     // Tear down any prior instance — safe to call multiple times
@@ -461,11 +462,16 @@ const App = {
     this._syncIndicatorLastUpdate = null;
     this._syncIndicatorPrevPending = null;
     this._syncIndicatorInFlight = false;
+    this._syncIndicatorFailureStreak = 0;
+    this._syncIndicatorCurrentIntervalMs = 30000;
 
     // Initial fetch (so the user sees something change immediately)
     this.refreshSyncIndicator();
 
-    // Periodic full refresh — fetches latest from the server every 30s
+    // Periodic full refresh — fetches latest from the server every 30s.
+    // The cadence adapts: if the backend is unreachable the interval backs
+    // off (60s → 120s → capped at 120s) to keep the browser console quiet
+    // and avoid hammering a down server. A successful check resets to 30s.
     this._syncIndicatorTimer = setInterval(() => this.refreshSyncIndicator(), 30000);
 
     // 1s UI tick — keeps the "X seconds ago" label alive so the user can
@@ -489,6 +495,15 @@ const App = {
     else label = `${Math.floor(ageSec / 60)}m ago`;
     el.textContent = `Updated ${label}`;
     el.classList.toggle('is-stale', ageSec > 60);
+  },
+
+  _rescheduleSyncIndicator(intervalMs) {
+    if (this._syncIndicatorCurrentIntervalMs === intervalMs) return;
+    this._syncIndicatorCurrentIntervalMs = intervalMs;
+    if (this._syncIndicatorTimer) {
+      clearInterval(this._syncIndicatorTimer);
+      this._syncIndicatorTimer = setInterval(() => this.refreshSyncIndicator(), intervalMs);
+    }
   },
 
   async refreshSyncIndicator() {
@@ -529,21 +544,45 @@ const App = {
       }
 
       // Row 1: Check Honcho health (connection status)
+      // We explicitly build the URL from window.location.origin instead of
+      // using a bare relative path. In normal deployments these are identical,
+      // but if the page is being served through a reverse proxy / tunnel that
+      // only forwards certain prefixes, the explicit origin keeps the request
+      // routed to whatever served the page rather than letting a service
+      // worker, <base> tag, or a misbehaving proxy intercept the resolution.
+      // We also short-circuit when the browser knows it's offline so we
+      // don't spam ERR_CONNECTION_REFUSED into the console on every tick.
       let connected = false;
-      try {
-        const hr = await fetch('/api/health');
-        const hd = await hr.json();
-        connected = hd.status === 'ok';
-      } catch {
+      if (navigator.onLine === false) {
         connected = false;
+      } else {
+        try {
+          const hr = await fetch(`${window.location.origin}/api/health`);
+          const hd = await hr.json();
+          connected = hd.status === 'ok';
+        } catch {
+          connected = false;
+        }
       }
 
       if (connected) {
         connDot.style.background = 'var(--green)';
         connText.textContent = 'Connected';
+        // Reset backoff on any successful health probe.
+        if (this._syncIndicatorFailureStreak > 0) {
+          this._syncIndicatorFailureStreak = 0;
+          this._rescheduleSyncIndicator(30000);
+        }
       } else {
         connDot.style.background = 'var(--destructive)';
-        connText.textContent = 'Unreachable';
+        // navigator.onLine === false is the only reliable "client is offline"
+        // signal; otherwise assume the server is the unreachable party.
+        connText.textContent = navigator.onLine === false ? 'Offline' : 'Unreachable';
+        // Back off: 30s → 60s → 120s (capped). Keeps the console from
+        // drowning in ERR_CONNECTION_REFUSED lines when the backend is down.
+        this._syncIndicatorFailureStreak += 1;
+        const next = Math.min(120000, 30000 * Math.pow(2, Math.min(2, this._syncIndicatorFailureStreak - 1)));
+        this._rescheduleSyncIndicator(next);
       }
 
       // Row 2: Check sync queue status
@@ -3177,9 +3216,13 @@ const SettingsTab = {
   async waitForHealth() {
     const MAX_RETRIES = 30;
     const RETRY_DELAY_MS = 2000;
+    // Use an explicit origin so the health check always goes to the same
+    // place the page was loaded from (matters when a reverse proxy is in
+    // play and only certain prefixes are forwarded).
+    const healthUrl = `${window.location.origin}/api/health`;
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
-        const res = await fetch('/api/health');
+        const res = await fetch(healthUrl);
         const data = await res.json();
         if (data.status === 'ok') return true;
       } catch {}
