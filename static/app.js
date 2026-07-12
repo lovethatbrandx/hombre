@@ -559,7 +559,7 @@ const App = {
         connected = false;
       } else {
         try {
-          const hr = await fetch(`${window.location.origin}/api/health`);
+          const hr = await fetch(`${window.location.origin}/api/health?_=${Date.now()}`);
           const hd = await hr.json();
           connected = hd.status === 'ok';
         } catch {
@@ -599,7 +599,7 @@ const App = {
         return;
       }
 
-      const data = await this.api(`sync/status/${ws.id}`, { method: 'GET' });
+      const data = await this.api(`sync/status/${ws.id}?_=${Date.now()}`, { method: 'GET' });
       const totalPending = parseInt(data.pending_work_units ?? 0, 10) || 0;
       const totalCompleted = parseInt(data.completed_work_units ?? 0, 10) || 0;
       const totalWork = parseInt(data.total_work_units ?? 0, 10) || 0;
