@@ -473,14 +473,13 @@ const App = {
 
     try {
       const data = await this.api(`sync/status/${ws.id}`, { method: 'GET' });
-      const repPending = parseInt(data.representation_tasks_pending ?? data.deriver_pending ?? 0, 10) || 0;
-      const sumPending = parseInt(data.summary_tasks_pending ?? 0, 10) || 0;
-      const dreamPending = parseInt(data.dream_tasks_pending ?? 0, 10) || 0;
-      const totalPending = repPending + sumPending + dreamPending;
+      const totalPending = parseInt(data.pending_work_units ?? 0, 10) || 0;
+      const totalCompleted = parseInt(data.completed_work_units ?? 0, 10) || 0;
+      const totalWork = parseInt(data.total_work_units ?? 0, 10) || 0;
 
       if (totalPending > 0) {
         syncDot.style.background = 'var(--amber)';
-        syncText.textContent = `Syncing (${totalPending} tasks)`;
+        syncText.textContent = `Syncing (${totalPending} pending)`;
       } else {
         syncDot.style.background = 'var(--green)';
         syncText.textContent = 'Synced';
@@ -489,9 +488,9 @@ const App = {
       if (details) {
         details.innerHTML = `
           <div style="display:flex;gap:8px;margin-bottom:6px">
-            <span>Rep: ${repPending}</span>
-            <span>Sum: ${sumPending}</span>
-            <span>Dream: ${dreamPending}</span>
+            <span>Pending: ${totalPending}</span>
+            <span>Done: ${totalCompleted}</span>
+            <span>Total: ${totalWork}</span>
           </div>
           <button class="btn btn-ghost btn-sm w-full" data-action="sync-trigger" style="font-size:11px;padding:4px 8px">Sync Now</button>
         `;
