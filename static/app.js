@@ -415,10 +415,12 @@ const App = {
     indicator.id = 'sidebar-sync-indicator';
     indicator.innerHTML = `
       <div class="sidebar-sync-row">
+        <span id="sidebar-conn-icon" class="sidebar-sync-icon is-idle" aria-hidden="true">…</span>
         <span id="sidebar-conn-dot" class="sidebar-sync-dot"></span>
         <span id="sidebar-conn-text" class="sidebar-sync-row-text">Checking...</span>
       </div>
       <div class="sidebar-sync-row">
+        <span id="sidebar-sync-icon" class="sidebar-sync-icon is-idle" aria-hidden="true">…</span>
         <span id="sidebar-sync-dot" class="sidebar-sync-dot"></span>
         <span id="sidebar-sync-text" class="sidebar-sync-row-text">Checking sync...</span>
       </div>
@@ -509,8 +511,10 @@ const App = {
   async refreshSyncIndicator() {
     const ws = this.state.workspace;
     const indicator = document.getElementById('sidebar-sync-indicator');
+    const connIcon = document.getElementById('sidebar-conn-icon');
     const connDot = document.getElementById('sidebar-conn-dot');
     const connText = document.getElementById('sidebar-conn-text');
+    const syncIcon = document.getElementById('sidebar-sync-icon');
     const syncDot = document.getElementById('sidebar-sync-dot');
     const syncText = document.getElementById('sidebar-sync-text');
     const progressFill = document.getElementById('sidebar-sync-progress-fill');
@@ -529,13 +533,11 @@ const App = {
 
     try {
       if (!ws) {
-        connDot.style.background = 'var(--text-dim)';
-        connText.textContent = 'No workspace';
-        syncDot.style.background = 'var(--text-dim)';
-        syncText.textContent = 'No workspace';
+        this._setIndicatorState('conn', 'no-workspace');
+        this._setIndicatorState('sync', 'no-workspace');
         if (progressFill) {
           progressFill.style.width = '0%';
-          progressFill.classList.remove('is-amber', 'is-green');
+          progressFill.classList.remove('is-pending', 'is-done');
         }
         if (progressPct) progressPct.textContent = '—';
         if (progressCounts) progressCounts.textContent = 'Select a workspace to begin';
@@ -566,18 +568,18 @@ const App = {
       }
 
       if (connected) {
-        connDot.style.background = 'var(--green)';
-        connText.textContent = 'Connected';
+        this._setIndicatorState('conn', 'connected');
         // Reset backoff on any successful health probe.
         if (this._syncIndicatorFailureStreak > 0) {
           this._syncIndicatorFailureStreak = 0;
           this._rescheduleSyncIndicator(30000);
         }
       } else {
-        connDot.style.background = 'var(--destructive)';
         // navigator.onLine === false is the only reliable "client is offline"
         // signal; otherwise assume the server is the unreachable party.
-        connText.textContent = navigator.onLine === false ? 'Offline' : 'Unreachable';
+        // Offline uses the neutral gray state; Unreachable uses the red
+        // error state (different conditions, different affordances).
+        this._setIndicatorState('conn', navigator.onLine === false ? 'offline' : 'unreachable');
         // Back off: 30s → 60s → 120s (capped). Keeps the console from
         // drowning in ERR_CONNECTION_REFUSED lines when the backend is down.
         this._syncIndicatorFailureStreak += 1;
@@ -587,11 +589,10 @@ const App = {
 
       // Row 2: Check sync queue status
       if (!connected) {
-        syncDot.style.background = 'var(--text-dim)';
-        syncText.textContent = 'Offline';
+        this._setIndicatorState('sync', 'offline');
         if (progressFill) {
           progressFill.style.width = '0%';
-          progressFill.classList.remove('is-amber', 'is-green');
+          progressFill.classList.remove('is-pending', 'is-done');
         }
         if (progressPct) progressPct.textContent = '—';
         if (progressCounts) progressCounts.textContent = 'Backend unreachable';
@@ -603,16 +604,13 @@ const App = {
       const totalCompleted = parseInt(data.completed_work_units ?? 0, 10) || 0;
       const totalWork = parseInt(data.total_work_units ?? 0, 10) || 0;
 
-      // Status line
+      // Status line — choose state, then build the text via the helper.
       if (totalPending > 0) {
-        syncDot.style.background = 'var(--amber)';
-        syncText.textContent = `Syncing (${totalPending} pending)`;
+        this._setIndicatorState('sync', 'syncing', { pending: totalPending });
       } else if (totalWork > 0) {
-        syncDot.style.background = 'var(--green)';
-        syncText.textContent = 'All synced';
+        this._setIndicatorState('sync', 'all-synced');
       } else {
-        syncDot.style.background = 'var(--text-dim)';
-        syncText.textContent = 'Idle';
+        this._setIndicatorState('sync', 'idle');
       }
 
       // Progress bar
@@ -621,8 +619,8 @@ const App = {
         : 0;
       if (progressFill) {
         progressFill.style.width = `${pct.toFixed(1)}%`;
-        progressFill.classList.toggle('is-amber', totalPending > 0);
-        progressFill.classList.toggle('is-green', totalPending === 0 && totalWork > 0);
+        progressFill.classList.toggle('is-pending', totalPending > 0);
+        progressFill.classList.toggle('is-done', totalPending === 0 && totalWork > 0);
       }
       if (progressPct) {
         progressPct.textContent = totalWork > 0 ? `${Math.round(pct)}%` : '—';
@@ -650,11 +648,10 @@ const App = {
 
       this._syncIndicatorLastUpdate = Date.now();
     } catch (err) {
-      syncDot.style.background = 'var(--destructive)';
-      syncText.textContent = 'Sync error';
+      this._setIndicatorState('sync', 'error');
       if (progressFill) {
         progressFill.style.width = '0%';
-        progressFill.classList.remove('is-amber', 'is-green');
+        progressFill.classList.remove('is-pending', 'is-done');
       }
       if (progressPct) progressPct.textContent = '—';
       if (progressCounts) progressCounts.textContent = 'Failed to check sync status';
@@ -664,6 +661,46 @@ const App = {
       if (indicator) indicator.classList.remove('is-loading');
       this._tickSyncIndicator();
     }
+  },
+
+  /* Centralized state setter for the two sidebar rows (conn, sync).
+     Color is one signal; the icon is the primary accessibility signal.
+     Pairs dot color class, icon character + class, and visible text. */
+  _INDICATOR_STATES: {
+    conn: {
+      'no-workspace': { dot: 'is-idle',     icon: 'is-idle',     glyph: '○', text: 'No workspace' },
+      'connected':    { dot: 'is-blue',     icon: 'is-synced',   glyph: '✓', text: 'Connected' },
+      'unreachable':  { dot: 'is-error',    icon: 'is-error',    glyph: '⚠', text: 'Unreachable' },
+      'offline':      { dot: 'is-offline',  icon: 'is-offline',  glyph: '⚠', text: 'Offline' },
+    },
+    sync: {
+      'no-workspace': { dot: 'is-idle',     icon: 'is-idle',     glyph: '○', text: 'No workspace' },
+      'syncing':      { dot: 'is-amber',    icon: 'is-syncing',  glyph: '⟳', text: (ctx) => `Syncing (${ctx.pending} pending)` },
+      'all-synced':   { dot: 'is-blue',     icon: 'is-synced',   glyph: '✓', text: 'All synced' },
+      'idle':         { dot: 'is-idle',     icon: 'is-idle',     glyph: '○', text: 'Idle' },
+      'offline':      { dot: 'is-offline',  icon: 'is-offline',  glyph: '⚠', text: 'Offline' },
+      'error':        { dot: 'is-error',    icon: 'is-error',    glyph: '⚠', text: 'Sync error' },
+    },
+  },
+
+  _setIndicatorState(indicator, stateKey, ctx = {}) {
+    const cfg = this._INDICATOR_STATES[indicator]?.[stateKey];
+    if (!cfg) return;
+    const dot = document.getElementById(`sidebar-${indicator}-dot`);
+    const icon = document.getElementById(`sidebar-${indicator}-icon`);
+    const text = document.getElementById(`sidebar-${indicator}-text`);
+    if (!dot || !text) return;
+
+    // Clear all state classes so previously-set state never bleeds in.
+    dot.classList.remove('is-blue', 'is-amber', 'is-offline', 'is-error', 'is-idle');
+    if (icon) icon.classList.remove('is-synced', 'is-syncing', 'is-offline', 'is-error', 'is-idle');
+
+    dot.classList.add(cfg.dot);
+    if (icon) {
+      icon.textContent = cfg.glyph;
+      icon.classList.add(cfg.icon);
+    }
+    text.textContent = typeof cfg.text === 'function' ? cfg.text(ctx) : cfg.text;
   },
 
 };

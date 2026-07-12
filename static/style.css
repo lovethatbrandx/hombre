@@ -19,6 +19,18 @@
   --green-bg: rgba(134, 239, 172, 0.12);
   --blue: #93c5fd;
   --purple: #c4b5fd;
+  /* Colorblind-friendly sync state palette.
+     Blue and orange are reliably distinguishable across protanopia,
+     deuteranopia, and tritanopia — they sit far apart on the color
+     wheel and differ significantly in luminance. Pairing them with
+     icons (see .sidebar-sync-icon) ensures state is never conveyed
+     by color alone. */
+  --amber: #f59e0b;
+  --amber-bg: rgba(245, 158, 11, 0.12);
+  --blue-strong: #3b82f6;
+  --blue-strong-bg: rgba(59, 130, 246, 0.12);
+  --offline: #6b7280;
+  --offline-bg: rgba(107, 114, 128, 0.12);
   --radius: 8px;
   --radius-sm: 4px;
   --radius-lg: 12px;
@@ -146,7 +158,10 @@ a:hover { color: var(--accent-hover); }
   margin-right: 8px;
 }
 
-.health-dot.ok { background: var(--green); box-shadow: 0 0 6px rgba(134, 239, 172, 0.4); }
+/* Colorblind-friendly: blue for healthy (instead of green which is hard
+   to distinguish from red/amber for protanopic/deuteranopic users). The
+   accompanying health-text is the primary indicator; this is a cue. */
+.health-dot.ok { background: var(--blue-strong); box-shadow: 0 0 6px rgba(59, 130, 246, 0.4); }
 .health-dot.err { background: var(--destructive); box-shadow: 0 0 6px rgba(223, 95, 121, 0.4); }
 
 .health-text {
@@ -190,6 +205,78 @@ a:hover { color: var(--accent-hover); }
   transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 
+/* State classes for the sync dot. Color is one signal; the
+   .sidebar-sync-icon next to the dot is the primary indicator so we
+   never depend on color alone. */
+.sidebar-sync-dot.is-blue {
+  background: var(--blue-strong);
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.4);
+}
+
+.sidebar-sync-dot.is-amber {
+  background: var(--amber);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+}
+
+.sidebar-sync-dot.is-offline {
+  background: var(--offline);
+  box-shadow: none;
+}
+
+.sidebar-sync-dot.is-error {
+  background: var(--destructive);
+  box-shadow: 0 0 6px rgba(223, 95, 121, 0.4);
+}
+
+/* State icon shown to the left of each row's dot. This is the primary
+   accessibility signal — the color of the dot is a redundant cue. */
+.sidebar-sync-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 3px;
+  flex-shrink: 0;
+  font-family: var(--font);
+  transition: color 0.2s ease, background 0.2s ease;
+  user-select: none;
+}
+
+.sidebar-sync-icon.is-synced {
+  color: var(--blue-strong);
+  background: var(--blue-strong-bg);
+}
+
+.sidebar-sync-icon.is-syncing {
+  color: var(--amber);
+  background: var(--amber-bg);
+  animation: sync-icon-spin 1.2s linear infinite;
+}
+
+.sidebar-sync-icon.is-offline {
+  color: var(--offline);
+  background: var(--offline-bg);
+}
+
+.sidebar-sync-icon.is-error {
+  color: var(--destructive);
+  background: rgba(223, 95, 121, 0.12);
+}
+
+.sidebar-sync-icon.is-idle {
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+@keyframes sync-icon-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* Progress bar */
 .sidebar-sync-progress-wrap {
   display: flex;
@@ -217,14 +304,28 @@ a:hover { color: var(--accent-hover); }
   box-shadow: 0 0 0 transparent;
 }
 
-.sidebar-sync-progress-fill.is-amber {
+/* Pending state: orange with diagonal stripes. The striped pattern
+   is the primary accessibility signal — it reads as "in progress"
+   even when the color is hard to distinguish or the bar is at low
+   percentage (where color fill alone would be a tiny sliver). */
+.sidebar-sync-progress-fill.is-pending {
   background: var(--amber);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--amber) 0,
+    var(--amber) 8px,
+    rgba(255, 255, 255, 0.22) 8px,
+    rgba(255, 255, 255, 0.22) 16px
+  );
   box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
 }
 
-.sidebar-sync-progress-fill.is-green {
-  background: var(--green);
-  box-shadow: 0 0 8px rgba(134, 239, 172, 0.4);
+/* Done state: solid blue. The accompanying "All synced" text + ✓
+   icon (set in JS) are the primary signal; the bar's solid color
+   reinforces it. */
+.sidebar-sync-progress-fill.is-done {
+  background: var(--blue-strong);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
 /* Indeterminate shimmer while loading */
