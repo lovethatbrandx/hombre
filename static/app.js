@@ -2425,8 +2425,7 @@ const SettingsTab = {
       <div class="settings-sticky-bar">
         <button class="btn btn-ghost" data-action="settings-backup">Create Backup</button>
         <button class="btn btn-ghost" data-action="settings-restore">Restore Backup</button>
-        <button class="btn btn-primary" data-action="settings-save">Save Changes</button>
-        <button class="btn btn-primary" data-action="settings-apply" style="background:var(--green);color:var(--surface)">Apply & Restart</button>
+        <button class="btn btn-primary" data-action="settings-apply" style="background:var(--green);color:var(--surface)">Save & Restart</button>
       </div>
     </div>`;
 
@@ -3173,7 +3172,6 @@ const SettingsTab = {
       });
     });
 
-    el.querySelector('[data-action="settings-save"]')?.addEventListener('click', () => this.save(el));
     el.querySelector('[data-action="settings-apply"]')?.addEventListener('click', () => this.applyAndRestart(el));
     el.querySelector('[data-action="settings-backup"]')?.addEventListener('click', () => this.backup(el));
     el.querySelector('[data-action="settings-restore"]')?.addEventListener('click', () => this.restore(el));
@@ -3196,33 +3194,8 @@ const SettingsTab = {
 
   updateDirtyIndicators(el) {
     const dirtyCount = Object.keys(this.dirty).length;
-    const saveBtn = el.querySelector('[data-action="settings-save"]');
     const applyBtn = el.querySelector('[data-action="settings-apply"]');
-    if (saveBtn) saveBtn.disabled = dirtyCount === 0;
     if (applyBtn) applyBtn.disabled = dirtyCount === 0;
-  },
-
-  async save(el) {
-    const saveBtn = el.querySelector('[data-action="settings-save"]');
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
-
-    try {
-      const res = await fetch('/api/settings/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: this.dirty }),
-      });
-      if (!res.ok) throw new Error('Save failed');
-      this.original = { ...this.original, ...this.dirty };
-      this.dirty = {};
-      this.updateDirtyIndicators(el);
-      saveBtn.textContent = 'Saved';
-      setTimeout(() => { saveBtn.textContent = 'Save Changes'; }, 2000);
-    } catch (e) {
-      saveBtn.textContent = 'Failed';
-      setTimeout(() => { saveBtn.textContent = 'Save Changes'; saveBtn.disabled = false; }, 2000);
-    }
   },
 
   async applyAndRestart(el) {
@@ -3250,10 +3223,10 @@ const SettingsTab = {
       await this.waitForHealth();
 
       applyBtn.textContent = 'Done';
-      setTimeout(() => { applyBtn.textContent = 'Apply & Restart'; applyBtn.disabled = false; }, 2000);
+      setTimeout(() => { applyBtn.textContent = 'Save & Restart'; applyBtn.disabled = false; }, 2000);
     } catch (e) {
       applyBtn.textContent = 'Failed';
-      setTimeout(() => { applyBtn.textContent = 'Apply & Restart'; applyBtn.disabled = false; }, 2000);
+      setTimeout(() => { applyBtn.textContent = 'Save & Restart'; applyBtn.disabled = false; }, 2000);
     }
   },
 
