@@ -673,7 +673,7 @@ async def trigger_sync(req: SyncTriggerRequest, request: Request):
             detail="observer_required: no peers found and none supplied",
         )
 
-    await _audit_fire_and_forget("sync.trigger", user=user, detail=f"workspace={req.workspace_id} observer={observer}")
+    _audit_fire_and_forget("sync.trigger", user=user, detail=f"workspace={req.workspace_id} observer={observer}")
 
     log.info("Triggering manual sync for workspace %s (observer=%s, dream_type=%s)", req.workspace_id, observer, req.dream_type)
     try:
