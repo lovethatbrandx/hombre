@@ -107,7 +107,6 @@ app.include_router(sync_router)
 app.include_router(deletes_router)
 app.include_router(export_router)
 app.include_router(trash_router)
-app.include_router(workspace_router)
 
 
 @app.get("/api/auth/status")
@@ -139,8 +138,8 @@ async def chat_stream(wid: str, pid: str, request: Request):
                 json=body,
                 timeout=httpx.Timeout(None, connect=5.0, read=120.0),
             ) as resp:
-                async for line in resp.aiter_lines():
-                    yield f"{line}\n"
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
 
         return StreamingResponse(
             event_gen(),
@@ -245,6 +244,11 @@ async def list_all_messages(wid: str, sid: str):
             break
 
     return {"messages": all_messages, "count": len(all_messages)}
+
+
+# Keep this generic router after the dedicated workspace endpoints above.
+# Its catch-all POST route would otherwise intercept the chat SSE endpoint.
+app.include_router(workspace_router)
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
